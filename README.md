@@ -20,6 +20,28 @@ homelab-status ──► JSON ──► bar pill / panel (serpantinum QML)
              └─ nmcli scan · VirtualBox + QEMU VMs · ss · ufw
 ```
 
+## Hardware: you need a second Wi-Fi card
+
+The detector needs a **dedicated Wi-Fi adapter that supports monitor mode**, in
+addition to the card you use for internet:
+
+- **Why a second card:** in monitor mode the adapter stops being a normal
+  network connection — it listens to every frame on a channel and hops between
+  channels. A single card can't stay connected to your network and do that at
+  the same time, so your laptop's built-in Wi-Fi keeps the internet and the
+  second card is the sensor.
+- **Which card:** a USB adapter whose Linux driver supports monitor mode.
+  Tested with an ALFA AWUS036ACH (Realtek RTL8812AU, in-kernel `rtw_8812au`,
+  2.4 + 5 GHz). Check yours with `iw phy` → "Supported interface modes" must
+  list `monitor`. Most built-in laptop cards (e.g. Intel `iwlwifi`) can do
+  monitor mode too, but then you'd lose your internet connection while it runs.
+- **Without the second card** the detector still runs, in a reduced
+  *scan* mode on your normal Wi-Fi: it can spot evil twins from scan results but
+  **cannot see deauth attacks or karma probe responses**.
+- **Testing deauth detection live** needs a third, injection-capable radio to
+  play the attacker (the sensor can't attack and listen at once). Evil-twin
+  detection can be tested with just a phone hotspot named like your network.
+
 ## Detector
 
 `detector/detector.py` — stdlib Python + `tshark`, no other dependencies.
@@ -102,7 +124,7 @@ Then add `"security"` to `bar.modules` and install the detector service (above).
 ## Requirements
 
 Arch/Hyprland, serpantinum 2.5.x, NetworkManager, `tshark` (wireshark-cli), `iw`,
-a monitor-mode-capable USB Wi-Fi adapter (tested: RTL8812AU, `rtw_8812au`),
+a **second**, monitor-mode-capable USB Wi-Fi adapter (see Hardware above; tested: RTL8812AU, `rtw_8812au`),
 Python 3.12+.
 
 ## Scope
