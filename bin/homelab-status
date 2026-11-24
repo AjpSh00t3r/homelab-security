@@ -11,6 +11,7 @@ Usage: homelab-status            # compact JSON on stdout
        homelab-status --pretty   # indented
        homelab-status --rescan   # ask NetworkManager for a fresh wifi scan first
        homelab-status --aps      # include the full access-point list (wifi.aps)
+Demo mode (mask SSIDs + MACs for screen recording): touch ~/.config/homelab/demo-mode
 """
 import json
 import os
@@ -214,9 +215,54 @@ def detector():
             "protected": d.get("protected", [])}
 
 
+
+# ---------------------------------------------------------------- demo mode
+# When ~/.config/homelab/demo-mode exists, everything this prints has real
+# SSIDs and MAC addresses masked, so the pill/panel/MCP are safe to record.
+DEMO_FLAG = os.path.expanduser("~/.config/homelab/demo-mode")
+MAC_RE = re.compile(r"\b([0-9a-fA-F]{2}[:-]){5}([0-9a-fA-F]{2})\b")
+
+
+def demo_on():
+    return os.path.exists(DEMO_FLAG)
+
+
+def demo_ssid(ssid, protected):
+    """Stable pseudonym: your protected/connected network -> Home-WiFi, others -> WiFi-xxxx."""
+    import hashlib
+    if not ssid:
+        return ssid
+    if ssid in protected:
+        return "Home-WiFi"
+    return "WiFi-" + hashlib.sha1(ssid.encode()).hexdigest()[:4]
+
+
+def demo_scrub(snap, all_ssids):
+    protected = set(snap.get("detector", {}).get("protected") or [])
+    if snap.get("wifi", {}).get("ssid"):
+        protected.add(snap["wifi"]["ssid"])
+    for a in snap.get("alerts", []):
+        for k in ("ssid",):
+            if a.get(k):
+                all_ssids.add(a[k])
+        for x in a.get("ssids") or []:
+            all_ssids.add(x)
+    all_ssids |= protected
+    text = json.dumps(snap)
+    # longest first so "Net-5G" is replaced before "Net"
+    for ssid in sorted((x for x in all_ssids if x), key=len, reverse=True):
+        enc = json.dumps(ssid)[1:-1]          # as it appears inside JSON strings
+        text = text.replace(enc, demo_ssid(ssid, protected))
+    text = MAC_RE.sub(lambda m: "xx:xx:xx:xx:xx:" + m.group(2).lower(), text)
+    out = json.loads(text)
+    out["demo"] = True
+    return out
+
+
 def main():
     pretty = "--pretty" in sys.argv
     w = wifi(rescan="--rescan" in sys.argv)
+    seen_ssids = {a["ssid"] for a in w["aps"]}
     if "--aps" not in sys.argv:
         w.pop("aps")
     vms = qemu_vms() + vbox_vms()
@@ -232,6 +278,8 @@ def main():
 
     snap = {"ts": int(time.time()), "level": level, "firewall": fw,
             "vms": vms, "ports": ports, "wifi": w, "alerts": al, "detector": detector()}
+    if demo_on():
+        snap = demo_scrub(snap, seen_ssids)
     json.dump(snap, sys.stdout, indent=2 if pretty else None)
     sys.stdout.write("\n")
 

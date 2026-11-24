@@ -1,0 +1,38 @@
+#!/usr/bin/env bash
+# homelab-demo — demo mode for screen recordings.
+#   homelab-demo on      mask SSIDs + MAC addresses in the Lab Security pill/panel,
+#                        homelab-status / MCP output and detector notifications,
+#                        and hide the network name in serpantinum's Wi-Fi module
+#   homelab-demo off     back to normal (restores the Wi-Fi module setting)
+#   homelab-demo         show the current state
+# The flag file is ~/.config/homelab/demo-mode; alerts.jsonl always keeps real values.
+set -eu
+FLAG="$HOME/.config/homelab/demo-mode"
+
+wifi_name() {  # set serpantinum bar.wifiShowName (best effort)
+  command -v serpantinum >/dev/null || return 0
+  serpantinum config set bar.wifiShowName "$1" >/dev/null 2>&1 || true
+}
+
+case "${1:-status}" in
+  on)
+    mkdir -p "$(dirname "$FLAG")"
+    if [ ! -e "$FLAG" ]; then
+      prev=$(serpantinum config get bar.wifiShowName true 2>/dev/null || echo true)
+      printf 'wifiShowName=%s\n' "${prev:-true}" > "$FLAG"
+    fi
+    wifi_name false
+    echo "demo mode ON — SSIDs/MACs masked, Wi-Fi name hidden in the bar"
+    ;;
+  off)
+    prev=true
+    [ -f "$FLAG" ] && prev=$(sed -n 's/^wifiShowName=//p' "$FLAG")
+    rm -f "$FLAG"
+    wifi_name "${prev:-true}"
+    echo "demo mode OFF"
+    ;;
+  status)
+    [ -e "$FLAG" ] && echo "demo mode is ON" || echo "demo mode is OFF"
+    ;;
+  *) echo "usage: homelab-demo [on|off|status]" >&2; exit 2 ;;
+esac

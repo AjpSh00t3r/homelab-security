@@ -10,6 +10,7 @@ cd "$(dirname "$0")"
 
 install -Dm755 bin/homelab-status          ~/.local/bin/homelab-status
 install -Dm755 bin/homelab-widget-install  ~/.local/bin/homelab-widget-install
+install -Dm755 bin/homelab-demo            ~/.local/bin/homelab-demo
 install -Dm644 serpantinum/SecurityFace.qml          ~/.local/share/homelab-widget/SecurityFace.qml
 install -Dm644 serpantinum/bar/SecurityBarFace.qml   ~/.local/share/homelab-widget/bar/SecurityBarFace.qml
 install -Dm644 serpantinum/popup/SecurityPopup.qml   ~/.local/share/homelab-widget/popup/SecurityPopup.qml

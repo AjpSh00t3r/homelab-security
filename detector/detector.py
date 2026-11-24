@@ -158,6 +158,30 @@ def learn(conf: dict, rescan=True) -> dict:
 
 
 # ------------------------------------------------------------------ alerts
+
+DEMO_FLAG = HOME / ".config/homelab/demo-mode"
+
+
+def demo_mask(msg: str, conf: dict, extra: dict | None = None) -> str:
+    """Demo mode (~/.config/homelab/demo-mode): mask SSIDs and MACs in what is
+    shown on screen (notifications). alerts.jsonl keeps the real values;
+    homelab-status masks them on output with the same pseudonyms."""
+    if not DEMO_FLAG.exists():
+        return msg
+    import hashlib
+    protected = set(conf.get("protected_ssids") or [])
+    ssids = set(protected)
+    extra = extra or {}
+    if extra.get("ssid"):
+        ssids.add(extra["ssid"])
+    ssids.update(extra.get("ssids") or [])
+    for ssid in sorted((x for x in ssids if x), key=len, reverse=True):
+        alias = "Home-WiFi" if ssid in protected else "WiFi-" + hashlib.sha1(ssid.encode()).hexdigest()[:4]
+        msg = msg.replace(ssid, alias)
+    return re.sub(r"\b([0-9a-fA-F]{2}[:-]){5}([0-9a-fA-F]{2})\b",
+                  lambda m: "xx:xx:xx:xx:xx:" + m.group(2).lower(), msg)
+
+
 class Alerter:
     def __init__(self, conf, path=ALERTS_FILE, dry=False):
         self.conf, self.path, self.dry = conf, path, dry
@@ -180,7 +204,7 @@ class Alerter:
             fh.write(json.dumps(rec) + "\n")
         if severity == "high" and self.conf.get("notify"):
             sh(["notify-send", "-u", "critical", "-a", "Rogue AP detector", "-i", "security-high",
-                "Rogue AP detector", msg], timeout=5)
+                "Rogue AP detector", demo_mask(msg, self.conf, extra)], timeout=5)
 
 
 # ------------------------------------------------------------------ rules

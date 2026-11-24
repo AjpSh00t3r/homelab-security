@@ -358,7 +358,8 @@ Item {
                     horizontalAlignment: Text.AlignRight
                     font.pixelSize: window.s(11)
                     color: ThemeBackend.overlay1
-                    text: window.snap ? "updated " + window.ago(window.snap.ts) + " · homelab-status" : ""
+                    text: window.snap ? "updated " + window.ago(window.snap.ts) + " · homelab-status"
+                                        + (window.snap.demo ? " · demo mode (names masked)" : "") : ""
                 }
             }
         }

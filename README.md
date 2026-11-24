@@ -122,6 +122,20 @@ The pill polls `homelab-status` every 10 s; the panel every 3 s while open and
 has a Rescan button. A desktop-widget variant (`SecurityFace.qml`) is also
 registered and can be added from the widget picker.
 
+## Demo mode (screen recordings)
+
+```bash
+homelab-demo on    # mask SSIDs + MACs everywhere on screen
+homelab-demo off
+```
+
+While on (`~/.config/homelab/demo-mode` exists): `homelab-status` (so the pill,
+panel and MCP server) shows your network as **Home-WiFi**, other networks as
+`WiFi-xxxx`, and MAC addresses as `xx:xx:xx:xx:xx:74`; the detector's
+notifications are masked the same way; and serpantinum's Wi-Fi module hides the
+network name. `alerts.jsonl` always keeps the real values. Things outside this
+kit (terminal output, other apps) still show real names — keep them off-screen.
+
 ## Install
 
 ```bash
