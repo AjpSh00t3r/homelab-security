@@ -22,6 +22,19 @@ BarFaceBase {
                                   : level === "ok"    ? "Secure" : "…"
     readonly property string shieldIcon: "󰒃"
 
+    // "button" = pill with background, "text" = icon + label, no background.
+    // Set from Settings → Bar → Modules → Lab Security (bar.securityStyle).
+    property string securityStyle: {
+        if (widget && widget !== root && widget.securityStyle !== undefined) return widget.securityStyle;
+        if (module && module.securityStyle !== undefined) return module.securityStyle;
+        let dummy = configRevision;
+        if (typeof Config !== "undefined" && Config.rawSettings && Config.rawSettings.bar) {
+            let bs = Config.rawSettings.bar;
+            if (bs.securityStyle) return bs.securityStyle;
+        }
+        return "button";
+    }
+
     property bool showFace: (!barWindow || isPreview) ? true : false
     readonly property var secPill: pillLoader.item
     readonly property bool wantsData: !root.isPreview && (!module || module.moduleActive)
@@ -46,8 +59,11 @@ BarFaceBase {
     }
 
     readonly property real pillLength: pillLoader.item ? (isVertical ? pillLoader.item.height : pillLoader.item.width) : 0
+    readonly property real textLength: isVertical ? textLayout.implicitHeight : textLayout.implicitWidth
     property real targetLength: {
         if (module && !module.moduleActive) return 0;
+        if (root.securityStyle === "text")
+            return (textLength > 0) ? (textLength + s(root.isCompact ? (isVertical ? 14 : 12) : 16)) : 0;
         return (pillLength > 0) ? (pillLength + s(root.isCompact ? 8 : 10)) : 0;
     }
     property bool isFaceVisible: showFace && targetLength > 0
@@ -76,8 +92,56 @@ BarFaceBase {
         Behavior on x { NumberAnimation { duration: 800; easing.type: Easing.OutQuint } }
     }
 
+    MouseArea {
+        id: textMouseArea
+        anchors.fill: parent
+        hoverEnabled: true
+        cursorShape: Qt.PointingHandCursor
+        enabled: root.securityStyle === "text" && !root.isPreview
+        onClicked: root.togglePopup()
+    }
+
+    AxisFlow {
+        id: textLayout
+        vertical: root.isVertical
+        horizontalItemAlignment: Grid.AlignHCenter
+        verticalItemAlignment: Grid.AlignVCenter
+        visible: root.securityStyle === "text"
+        anchors.centerIn: parent
+        spacing: root.isVertical ? s(root.isCompact ? 2 : 3) : s(root.isCompact ? 5 : 6)
+        opacity: root.showFace ? 1.0 : 0.0
+        Behavior on opacity { NumberAnimation { duration: 400; easing.type: Easing.OutCubic } }
+
+        Item {
+            width: root.isVertical ? textIcon.implicitWidth : s(root.isCompact ? 18 : 20)
+            height: root.isVertical ? textIcon.implicitHeight : width
+            Text {
+                id: textIcon
+                anchors.centerIn: parent
+                text: root.shieldIcon
+                font.family: ThemeBackend.iconFont
+                font.pixelSize: s(root.isCompact ? 14 : 15)
+                horizontalAlignment: Text.AlignHCenter
+                verticalAlignment: Text.AlignVCenter
+                color: textMouseArea.containsMouse ? Qt.lighter(root.levelColor, 1.15) : root.levelColor
+                Behavior on color { ColorAnimation { duration: 150 } }
+            }
+        }
+
+        Text {
+            visible: !root.isVertical
+            text: root.label
+            font.family: ThemeBackend.fontFamily
+            font.pixelSize: s(root.isCompact ? 11 : 12)
+            font.bold: true
+            color: textMouseArea.containsMouse ? Qt.lighter(root.levelColor, 1.15) : root.levelColor
+            Behavior on color { ColorAnimation { duration: 150 } }
+        }
+    }
+
     Loader {
         id: pillLoader
+        visible: root.securityStyle !== "text"
         anchors.centerIn: parent
         sourceComponent: root.isVertical ? sideButtonComponent : topButtonComponent
     }

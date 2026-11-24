@@ -106,8 +106,11 @@ unmanaged-devices=interface-name:wlalfa
 serpantinum hardcodes its widget, bar-module and popup registries, so
 `bin/homelab-widget-install` copies the QML into its tree and injects a
 `"security"` entry into `WidgetRegistry.qml`, `BarModuleRegistry.qml` and
-`WindowRegistry.js`. It's idempotent; run it again after every serpantinum
+`WindowRegistry.js`, plus the settings card into `guide/bar/modules/`. It's idempotent; run it again after every serpantinum
 update, or watch those three files with a systemd `--user` path unit that runs it.
+
+It also adds a **Lab Security** card to Settings → Bar → Modules with a
+Button / Text style (stored as `bar.securityStyle`), like the built-in modules.
 
 The pill polls `homelab-status` every 10 s; the panel every 3 s while open and
 has a Rescan button. A desktop-widget variant (`SecurityFace.qml`) is also

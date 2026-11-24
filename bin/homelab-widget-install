@@ -5,6 +5,7 @@
 #   desktop widget : faces/security/SecurityFace.qml  + WidgetRegistry.qml  "security"
 #   bar pill       : bar/faces/security/SecurityBarFace.qml + BarModuleRegistry.qml "security"
 #   popup          : security/SecurityPopup.qml        + WindowRegistry.js  "security"
+#   settings card  : guide/bar/modules/BarSecurityCard.qml + qmldir + BarModulesTab.qml
 # Durable sources live in ~/.local/share/homelab-widget/.
 # Called by serp-ws-fixup (systemd path unit) after updates; safe to run by hand.
 # Prints "changed" if it modified anything.
@@ -55,13 +56,50 @@ inject "$QS/widgets/WidgetRegistry.qml" "property var types: ({" '"security": {'
         },
 EOF
 
-inject "$QS/bar/BarModuleRegistry.qml" "property var types: ({" '"security": {' <<'EOF'
-        "security": {
+# Older installs injected a variant-less entry; drop it so the styled one goes in.
+if [ -f "$QS/bar/BarModuleRegistry.qml" ] && ! grep -q 'SEC_VARIANTS' "$QS/bar/BarModuleRegistry.qml"; then
+  python3 - "$QS/bar/BarModuleRegistry.qml" <<'PY2'
+import sys
+p = sys.argv[1]
+s = open(p).read()
+old = """        "security": {
             name: "Lab Security",
             icon: "󰒃",
             defaultVariant: "default",
             face: "faces/security/SecurityBarFace.qml"
         },
+"""
+if old in s:
+    open(p, "w").write(s.replace(old, "", 1))
+PY2
+fi
+
+inject "$QS/bar/BarModuleRegistry.qml" "property var types: ({" 'SEC_VARIANTS' <<'EOF'
+        "security": { // SEC_VARIANTS (homelab-widget-install)
+            name: "Lab Security",
+            icon: "󰒃",
+            defaultVariant: "button",
+            face: "faces/security/SecurityBarFace.qml",
+            variants: {
+                "button": { id: "button", name: "Button", desc: "Interactive button pill with background", icon: "󰒃", face: "faces/security/SecurityBarFace.qml" },
+                "text": { id: "text", name: "Text", desc: "Clean text and icon without background", icon: "󰒃", face: "faces/security/SecurityBarFace.qml" }
+            }
+        },
+EOF
+
+# Settings → Bar → Modules card
+install_file "$SRC/settings/BarSecurityCard.qml" "$QS/guide/bar/modules/BarSecurityCard.qml"
+if [ -f "$QS/guide/bar/modules/qmldir" ] && ! grep -q '^BarSecurityCard ' "$QS/guide/bar/modules/qmldir"; then
+  echo 'BarSecurityCard 1.0 BarSecurityCard.qml' >> "$QS/guide/bar/modules/qmldir"; changed=1
+fi
+inject "$QS/guide/bar/BarModulesTab.qml" "            sourceComponent: BarKeyboardCard { tab: barModulesRoot }
+        }" 'BarSecurityCard' <<'EOF'
+
+        Loader {
+            Layout.fillWidth: true
+            active: barModulesRoot.deferredStage >= 9
+            sourceComponent: BarSecurityCard { tab: barModulesRoot }
+        }
 EOF
 
 inject "$QS/WindowRegistry.js" "let base = {" '"security": {' <<'EOF'

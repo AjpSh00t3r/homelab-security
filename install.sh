@@ -13,6 +13,7 @@ install -Dm755 bin/homelab-widget-install  ~/.local/bin/homelab-widget-install
 install -Dm644 serpantinum/SecurityFace.qml          ~/.local/share/homelab-widget/SecurityFace.qml
 install -Dm644 serpantinum/bar/SecurityBarFace.qml   ~/.local/share/homelab-widget/bar/SecurityBarFace.qml
 install -Dm644 serpantinum/popup/SecurityPopup.qml   ~/.local/share/homelab-widget/popup/SecurityPopup.qml
+install -Dm644 serpantinum/settings/BarSecurityCard.qml ~/.local/share/homelab-widget/settings/BarSecurityCard.qml
 install -Dm755 detector/detector.py                  ~/.local/share/rogue-ap-detector/detector.py
 install -Dm644 detector/rogue-ap-detector.service.in ~/.local/share/rogue-ap-detector/rogue-ap-detector.service.in
 install -Dm755 detector/install.sh                   ~/.local/share/rogue-ap-detector/install.sh
