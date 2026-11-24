@@ -184,15 +184,23 @@ Item {
                                 : window.level === "warn" ? "Needs attention" : "All clear"
                         }
                     }
-                    ClickButton {
-                        height: window.s(32)
+                    // Hold-to-confirm (serpantinum FillButton): hold the left
+                    // button until the bar fills left→right, then it rescans.
+                    FillButton {
+                        Layout.preferredWidth: window.s(132)
+                        Layout.preferredHeight: window.s(32)
+                        maxWidth: window.s(132)
                         cornerRadius: Math.max(0, ThemeBackend.borderRadius - window.s(2))
                         horizontalPadding: window.s(12)
                         buttonIcon: rescan.running ? "󰑓" : "󰑐"
                         iconFontSize: window.s(14)
                         buttonText: rescan.running ? "Scanning" : "Rescan"
                         textFontSize: window.s(12)
-                        onClicked: if (!rescan.running) rescan.running = true
+                        accentColor: ThemeBackend.blue
+                        baseColor: ThemeBackend.surface0
+                        hoverColor: ThemeBackend.surface1
+                        fillDuration: 1000
+                        onTriggered: if (!rescan.running) rescan.running = true
                     }
                 }
 
