@@ -1,0 +1,25 @@
+[Unit]
+Description=Rogue AP / evil-twin / deauth detector (homelab)
+After=network-online.target NetworkManager.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=@USER@
+Group=@GROUP@
+SupplementaryGroups=wireshark
+Environment=HOME=@HOME@ XDG_RUNTIME_DIR=/run/user/@UID@ DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/@UID@/bus PYTHONUNBUFFERED=1
+# monitor mode + channel hopping (iw) need NET_ADMIN; dumpcap's own file caps
+# (net_admin, net_raw, dac_override) must stay inside the bounding set.
+AmbientCapabilities=CAP_NET_ADMIN CAP_NET_RAW
+CapabilityBoundingSet=CAP_NET_ADMIN CAP_NET_RAW CAP_DAC_OVERRIDE
+# remove a leftover libpcap "mon0" from manual tshark -I runs
+ExecStartPre=-+/usr/bin/iw dev mon0 del
+ExecStart=/usr/bin/python3 -I @HOME@/.local/share/rogue-ap-detector/detector.py
+# hand the ALFA back in managed mode (still NetworkManager-unmanaged) when stopped
+ExecStopPost=-+/bin/sh -c 'ip link set wlalfa down && iw dev wlalfa set type managed && ip link set wlalfa up'
+Restart=on-failure
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target

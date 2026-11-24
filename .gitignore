@@ -1,0 +1,6 @@
+__pycache__/
+*.pyc
+*.bak*
+config.json
+alerts.jsonl
+detector.json

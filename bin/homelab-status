@@ -1,0 +1,227 @@
+#!/usr/bin/env python3
+"""homelab-status — one JSON snapshot of the host's lab/security state.
+
+Shared backend for:
+  * the serpantinum "security" desktop widget (reads this every few seconds)
+  * the homelab MCP server (planned)
+  * the rogue-AP detector (planned) — it appends alerts to ALERTS_FILE,
+    which this script surfaces.
+
+Usage: homelab-status            # compact JSON on stdout
+       homelab-status --pretty   # indented
+       homelab-status --rescan   # ask NetworkManager for a fresh wifi scan first
+       homelab-status --aps      # include the full access-point list (wifi.aps)
+"""
+import json
+import os
+import re
+import socket
+import subprocess
+import sys
+import time
+
+STATE_DIR = os.path.expanduser("~/.local/state/homelab")
+ALERTS_FILE = os.path.join(STATE_DIR, "alerts.jsonl")
+# VMs that are not part of the lab (Claude's own sandbox VM etc.)
+HIDE_VMS = set(filter(None, os.environ.get("HOMELAB_HIDE_VMS", "claude-cowork-vm").split(",")))
+# Listening ports bound to all interfaces that you already know about.
+KNOWN_EXPOSED = set(filter(None, os.environ.get("HOMELAB_KNOWN_PORTS", "22,80").split(",")))
+
+
+def run(cmd, timeout=4):
+    try:
+        return subprocess.run(cmd, capture_output=True, text=True, timeout=timeout).stdout
+    except Exception:
+        return ""
+
+
+def port_open(port, host="127.0.0.1", timeout=0.3):
+    try:
+        with socket.create_connection((host, port), timeout=timeout):
+            return True
+    except OSError:
+        return False
+
+
+# ---------------------------------------------------------------- VMs
+def ssh_user():
+    """SSH user for lab VMs: $HOMELAB_SSH_USER, else ~/.config/homelab/ssh-user, else $USER."""
+    u = os.environ.get("HOMELAB_SSH_USER", "")
+    if not u:
+        try:
+            u = open(os.path.expanduser("~/.config/homelab/ssh-user")).read().strip()
+        except OSError:
+            u = ""
+    return u or os.environ.get("USER", "")
+
+
+def qemu_vms():
+    vms = []
+    for line in run(["pgrep", "-a", "qemu-system"]).splitlines():
+        m = re.search(r"-name\s+(?:guest=)?([^\s,]+)", line)
+        name = m.group(1) if m else "qemu"
+        if name in HIDE_VMS:
+            continue
+        fwd = re.search(r"hostfwd=tcp:[^:]*:(\d+)-:22\b", line)
+        ssh = int(fwd.group(1)) if fwd else None
+        vms.append({"name": name, "hv": "qemu", "ssh": ssh,
+                    "sshUp": port_open(ssh) if ssh else None,
+                    "sshUser": ssh_user() if ssh else None})
+    return vms
+
+
+def vbox_vms():
+    vms = []
+    for line in run(["VBoxManage", "list", "runningvms"]).splitlines():
+        m = re.match(r'"(.+)"\s+\{', line)
+        if m and m.group(1) not in HIDE_VMS:
+            vms.append({"name": m.group(1), "hv": "vbox", "ssh": None, "sshUp": None})
+    return vms
+
+
+# ---------------------------------------------------------------- ports
+def listening_ports():
+    exposed, local = [], 0
+    seen = set()
+    for line in run(["ss", "-tlnpH"]).splitlines():
+        parts = line.split()
+        if len(parts) < 4:
+            continue
+        addr, _, port = parts[3].rpartition(":")
+        proc = ""
+        pm = re.search(r'users:\(\("([^"]+)"', line)
+        if pm:
+            proc = pm.group(1)
+        if addr in ("127.0.0.1", "[::1]") or addr.startswith("127."):
+            local += 1
+            continue
+        if port in seen:
+            continue
+        seen.add(port)
+        exposed.append({"addr": addr, "port": int(port), "proc": proc,
+                        "known": port in KNOWN_EXPOSED})
+    exposed.sort(key=lambda p: p["port"])
+    return {"exposed": exposed, "localCount": local,
+            "unknownExposed": sum(1 for p in exposed if not p["known"])}
+
+
+def firewall():
+    st = run(["systemctl", "is-active", "ufw"]).strip()
+    return st or "unknown"
+
+
+# ---------------------------------------------------------------- wifi
+def split_nm(line):
+    # nmcli -t escapes ':' inside fields as '\:'
+    return [f.replace("\\:", ":") for f in re.split(r"(?<!\\):", line)]
+
+
+def oui_prefix(bssid, n=4):
+    return ":".join(bssid.lower().split(":")[:n])
+
+
+def wifi(rescan=False):
+    # Default: read NM's cached scan (never blocks). nmcli would otherwise
+    # auto-rescan when the cache is >30s old, which can take several seconds.
+    rows = run(["nmcli", "-t", "-f", "IN-USE,SSID,BSSID,CHAN,SIGNAL,SECURITY,DEVICE",
+                "dev", "wifi", "list", "--rescan", "yes" if rescan else "no"],
+               timeout=15 if rescan else 4).splitlines()
+    aps, cur = [], None
+    for r in rows:
+        f = split_nm(r)
+        if len(f) < 7:
+            continue
+        ap = {"inUse": f[0] == "*", "ssid": f[1], "bssid": f[2].lower(),
+              "chan": int(f[3] or 0), "signal": int(f[4] or 0),
+              "security": f[5] or "OPEN", "dev": f[6]}
+        aps.append(ap)
+        if ap["inUse"]:
+            cur = ap
+
+    suspects = []
+    if cur and cur["ssid"]:
+        for ap in aps:
+            if ap["inUse"] or ap["ssid"] != cur["ssid"]:
+                continue
+            reasons = []
+            if ap["security"] != cur["security"]:
+                reasons.append(f"security {ap['security']} vs {cur['security']}")
+            # Same router's other band usually differs only in the last octet(s).
+            if oui_prefix(ap["bssid"]) != oui_prefix(cur["bssid"]):
+                reasons.append("unrelated BSSID")
+            if reasons:
+                suspects.append({"ssid": ap["ssid"], "bssid": ap["bssid"],
+                                 "chan": ap["chan"], "signal": ap["signal"],
+                                 "reason": ", ".join(reasons)})
+
+    return {
+        "aps": aps,
+        "connected": bool(cur),
+        "ssid": cur["ssid"] if cur else "",
+        "bssid": cur["bssid"] if cur else "",
+        "signal": cur["signal"] if cur else 0,
+        "chan": cur["chan"] if cur else 0,
+        "security": cur["security"] if cur else "",
+        "apCount": len(aps),
+        "openCount": sum(1 for a in aps if a["security"] in ("OPEN", "--", "")),
+        "suspects": suspects,
+    }
+
+
+# ---------------------------------------------------------------- alerts
+def alerts(limit=5, max_age=24 * 3600):
+    out = []
+    try:
+        with open(ALERTS_FILE) as fh:
+            lines = fh.readlines()[-200:]
+    except OSError:
+        return out
+    now = time.time()
+    for ln in lines:
+        try:
+            a = json.loads(ln)
+        except ValueError:
+            continue
+        if now - float(a.get("ts", 0)) <= max_age:
+            out.append(a)
+    return out[-limit:][::-1]
+
+
+def detector():
+    """Rogue-AP detector state from its status file (fresh = written <20s ago)."""
+    try:
+        with open(os.path.join(STATE_DIR, "detector.json")) as fh:
+            d = json.load(fh)
+    except (OSError, ValueError):
+        return {"running": False, "mode": "off"}
+    fresh = time.time() - d.get("ts", 0) < 20 and d.get("mode") != "stopped"
+    return {"running": fresh, "mode": d.get("mode", "off") if fresh else "off",
+            "iface": d.get("iface"), "channel": d.get("channel"),
+            "frames": d.get("frames", 0), "bssidsSeen": d.get("bssids_seen", 0),
+            "protected": d.get("protected", [])}
+
+
+def main():
+    pretty = "--pretty" in sys.argv
+    w = wifi(rescan="--rescan" in sys.argv)
+    if "--aps" not in sys.argv:
+        w.pop("aps")
+    vms = qemu_vms() + vbox_vms()
+    ports = listening_ports()
+    al = alerts()
+    fw = firewall()
+
+    level = "ok"
+    if ports["unknownExposed"] or fw != "active":
+        level = "warn"
+    if w["suspects"] or any(a.get("severity") == "high" for a in al):
+        level = "alert"
+
+    snap = {"ts": int(time.time()), "level": level, "firewall": fw,
+            "vms": vms, "ports": ports, "wifi": w, "alerts": al, "detector": detector()}
+    json.dump(snap, sys.stdout, indent=2 if pretty else None)
+    sys.stdout.write("\n")
+
+
+if __name__ == "__main__":
+    main()

@@ -1,0 +1,80 @@
+#!/usr/bin/env bash
+# homelab-widget-install — put the "Lab Security" pieces into serpantinum.
+# serpantinum hardcodes widget/bar-module/popup types and an update
+# overwrites its tree, so this re-applies (idempotently):
+#   desktop widget : faces/security/SecurityFace.qml  + WidgetRegistry.qml  "security"
+#   bar pill       : bar/faces/security/SecurityBarFace.qml + BarModuleRegistry.qml "security"
+#   popup          : security/SecurityPopup.qml        + WindowRegistry.js  "security"
+# Durable sources live in ~/.local/share/homelab-widget/.
+# Called by serp-ws-fixup (systemd path unit) after updates; safe to run by hand.
+# Prints "changed" if it modified anything.
+set -eu
+
+SRC="$HOME/.local/share/homelab-widget"
+QS="$HOME/.local/share/serpantinum/src/quickshell"
+[ -d "$QS" ] && [ -d "$SRC" ] || exit 0
+changed=0
+
+install_file() {  # src dst
+  mkdir -p "$(dirname "$2")"
+  if ! cmp -s "$1" "$2"; then cp "$1" "$2"; changed=1; fi
+}
+
+# inject <file> <anchor> <marker> <entry-text-on-stdin>
+inject() {
+  local file="$1" anchor="$2" marker="$3" entry
+  entry="$(cat)"
+  [ -f "$file" ] || return 0
+  grep -qF "$marker" "$file" && return 0
+  python3 - "$file" "$anchor" "$entry" <<'PY'
+import sys
+p, anchor, entry = sys.argv[1], sys.argv[2], sys.argv[3]
+s = open(p).read()
+if anchor not in s:
+    sys.exit(f"anchor not found in {p}")
+open(p, "w").write(s.replace(anchor, anchor + "\n" + entry, 1))
+PY
+  changed=1
+}
+
+install_file "$SRC/SecurityFace.qml"           "$QS/widgets/faces/security/SecurityFace.qml"
+install_file "$SRC/bar/SecurityBarFace.qml"    "$QS/bar/faces/security/SecurityBarFace.qml"
+install_file "$SRC/popup/SecurityPopup.qml"    "$QS/security/SecurityPopup.qml"
+
+inject "$QS/widgets/WidgetRegistry.qml" "property var types: ({" '"security": {' <<'EOF'
+        "security": {
+            name: "Lab Security",
+            icon: String.fromCodePoint(0xF0483),
+            category: "system",
+            defaultWidth: 400,
+            defaultHeight: 240,
+            defaultVariant: "default",
+            variants: {
+                "default": { file: "faces/security/SecurityFace.qml", icon: "1", label: "Default" }
+            }
+        },
+EOF
+
+inject "$QS/bar/BarModuleRegistry.qml" "property var types: ({" '"security": {' <<'EOF'
+        "security": {
+            name: "Lab Security",
+            icon: "󰒃",
+            defaultVariant: "default",
+            face: "faces/security/SecurityBarFace.qml"
+        },
+EOF
+
+inject "$QS/WindowRegistry.js" "let base = {" '"security": {' <<'EOF'
+        "security": {
+            w: 480, h: 540, comp: "security/SecurityPopup.qml",
+            pos: {
+                "top": { anchor: "top-right", mt: 52, mr: 4 },
+                "bottom": { anchor: "bottom-right", mb: 52, mr: 4 },
+                "left": { anchor: "bottom-left", ml: 52, mb: 4 },
+                "right": { anchor: "bottom-right", mr: 52, mb: 4 }
+            }
+        },
+EOF
+
+[ "$changed" = 1 ] && echo changed
+exit 0
