@@ -48,6 +48,7 @@ homelab-status ──► JSON ──► bar pill / panel (serpantinum QML)
   `notify-send` notification (bypasses Do Not Disturb).
 - Config `~/.config/rogue-ap-detector/config.json` is created on first run and
   live-reloaded on change.
+- tshark is restarted every 30 min (`tshark_recycle`) so memory stays flat on an always-on service; detection state is kept across restarts.
 - `detector.py --selftest` runs synthetic frames through the parser + rules.
 
 ### Service

@@ -53,6 +53,7 @@ DEFAULT_CONF = {
     "karma_window": 60,
     "karma_ssids": 5,              # distinct SSIDs answered by one BSSID = karma/MANA
     "cooldown": 600,               # seconds before repeating the same alert
+    "tshark_recycle": 1800,        # restart tshark this often (s) to keep memory flat
     "notify": True,
 }
 
@@ -202,6 +203,15 @@ class Rules:
         akm = int(akm, 0)
         return {1: "ENTERPRISE", 2: "WPA2", 8: "WPA3", 6: "WPA2"}.get(akm, "WPA2")
 
+    def prune(self):
+        """Drop expired per-BSSID windows so long runs don't accumulate state."""
+        now = time.time()
+        for b in [b for b, seen in self.karma.items()
+                  if not seen or now - max(seen.values()) > self.conf["karma_window"]]:
+            del self.karma[b]
+        for k in [k for k, q in self.deauth.items() if not q or now - q[-1] > self.conf["deauth_window"]]:
+            del self.deauth[k]
+
     def frame(self, f: dict):
         self.frames += 1
         kind = f["kind"]
@@ -327,11 +337,12 @@ class Monitor:
                 return False
         return True
 
-    def hopper(self):
+    def hopper(self, proc):
+        """Hop channels for as long as *this* tshark process lives (one hopper per spawn)."""
         bad = set()
-        while running and self.proc and self.proc.poll() is None:
+        while running and proc.poll() is None:
             for ch in self.channels:
-                if not running or not self.proc or self.proc.poll() is not None:
+                if not running or proc.poll() is not None:
                     return
                 if ch in bad:
                     continue
@@ -341,31 +352,64 @@ class Monitor:
                 self.channel = ch
                 time.sleep(self.conf["protected_dwell"] if ch in self.priority else self.conf["dwell"])
 
-    def run(self, status):
-        if not self.set_mode("monitor"):
-            return False
-        log(f"monitor mode on {self.iface}; hopping {len(self.channels)} channels (priority {sorted(self.priority)})")
+    def _spawn(self):
         cmd = ["tshark", "-i", self.iface, "-l", "-n", "-Q", "-f", BPF, "-T", "fields",
                "-E", "separator=\t", "-E", "occurrence=f"]
         for fld in FIELDS:
             cmd += ["-e", fld]
         self.proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, bufsize=1)
-        threading.Thread(target=self.hopper, daemon=True).start()
+        threading.Thread(target=self.hopper, args=(self.proc,), daemon=True).start()
+        return self.proc
+
+    def run(self, status):
+        if not self.set_mode("monitor"):
+            return False
+        log(f"monitor mode on {self.iface}; hopping {len(self.channels)} channels (priority {sorted(self.priority)})")
         status.update(mode="monitor", iface=self.iface)
+        fails = 0
         try:
-            for line in self.proc.stdout:
+            while running and self.available():
+                # tshark's memory creeps up the longer it runs, so recycle it on a
+                # timer; detection state lives in self.rules and is kept.
+                recycle = float(load_conf().get("tshark_recycle", DEFAULT_CONF["tshark_recycle"]))
+                proc = self._spawn()
+                started = time.time()
+                timer = threading.Timer(recycle, lambda p=proc: p.poll() is None and p.terminate())
+                timer.daemon = True
+                timer.start()
+                for line in proc.stdout:
+                    if not running:
+                        break
+                    f = parse_line(line)
+                    if f:
+                        self.rules.frame(f)
+                    status.update(channel=self.channel)
+                timer.cancel()
+                if proc.poll() is None:
+                    proc.terminate()
+                try:
+                    proc.wait(timeout=5)
+                except subprocess.TimeoutExpired:
+                    proc.kill()
+                err = proc.stderr.read().strip() if proc.stderr else ""
+                ran = time.time() - started
+                self.proc = None
+                self.rules.prune()
                 if not running:
                     break
-                f = parse_line(line)
-                if f:
-                    self.rules.frame(f)
-                status.update(channel=self.channel)
+                if ran >= recycle - 1:
+                    fails = 0
+                    status.data["tshark_recycles"] = status.data.get("tshark_recycles", 0) + 1
+                    log(f"recycled tshark after {ran:.0f}s (frames so far {self.rules.frames})")
+                    continue
+                fails += 1
+                log(f"tshark exited after {ran:.0f}s" + (f": {err[-300:]}" if err else ""))
+                if fails >= 3:
+                    return True      # let main() re-check the adapter / fall back
+                time.sleep(2)
         finally:
-            if self.proc.poll() is None:
+            if self.proc and self.proc.poll() is None:
                 self.proc.terminate()
-            err = self.proc.stderr.read().strip() if self.proc.stderr else ""
-            if err:
-                log(f"tshark: {err[-400:]}")
             self.proc = None
             if self.available():
                 self.set_mode("managed")
