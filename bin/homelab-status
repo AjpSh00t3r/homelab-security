@@ -24,8 +24,21 @@ STATE_DIR = os.path.expanduser("~/.local/state/homelab")
 ALERTS_FILE = os.path.join(STATE_DIR, "alerts.jsonl")
 # VMs that are not part of the lab (Claude's own sandbox VM etc.)
 HIDE_VMS = set(filter(None, os.environ.get("HOMELAB_HIDE_VMS", "claude-cowork-vm").split(",")))
-# Listening ports bound to all interfaces that you already know about.
-KNOWN_EXPOSED = set(filter(None, os.environ.get("HOMELAB_KNOWN_PORTS", "22,80").split(",")))
+# Listening ports bound to all interfaces that you already know about:
+# $HOMELAB_KNOWN_PORTS (default 22,80) plus ~/.config/homelab/known-ports
+# (ports separated by commas, spaces or newlines; "#" starts a comment).
+def _known_ports():
+    ports = set(filter(None, os.environ.get("HOMELAB_KNOWN_PORTS", "22,80").split(",")))
+    try:
+        with open(os.path.expanduser("~/.config/homelab/known-ports")) as fh:
+            for line in fh:
+                ports.update(p for p in re.split(r"[\s,]+", line.split("#", 1)[0]) if p.isdigit())
+    except OSError:
+        pass
+    return ports
+
+
+KNOWN_EXPOSED = _known_ports()
 
 
 def run(cmd, timeout=4):

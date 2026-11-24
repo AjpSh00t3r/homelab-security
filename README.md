@@ -101,6 +101,12 @@ Name=wlalfa
 unmanaged-devices=interface-name:wlalfa
 ```
 
+### Known ports
+
+Exposed listening ports other than 22/80 turn the pill to **Check**. List ports you
+expect (e.g. AirPlay/UxPlay `7000 7001 7100`) in `~/.config/homelab/known-ports`
+(comma/space/newline separated, `#` comments) or `$HOMELAB_KNOWN_PORTS`.
+
 ## serpantinum pill + panel
 
 serpantinum hardcodes its widget, bar-module and popup registries, so
