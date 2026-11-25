@@ -1,5 +1,7 @@
 # homelab-security
 
+**A Wi-Fi security monitor for Hyprland: a Quickshell bar module backed by a rogue-AP detector.**
+
 A small blue-team kit for an Arch + Hyprland laptop running the
 [serpantinum](https://github.com/ilyamiro) Quickshell desktop:
 
